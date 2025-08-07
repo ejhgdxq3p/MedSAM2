@@ -337,7 +337,7 @@ class NPZSegmentLoader:
 
 
 class NiftiSegmentLoader:
-    def __init__(self, masks, target_class_id=None, multi_class_mode=True):
+    def __init__(self, masks, target_class_id=None, multi_class_mode=True, include_class_id=True):
         """
         Initialize the NiftiSegmentLoader.
         
@@ -347,10 +347,13 @@ class NiftiSegmentLoader:
                                            If None, will randomly select one class per frame.
             multi_class_mode (bool): If True, treat one class as foreground and others as background.
                                    If False, treat each class separately.
+            include_class_id (bool): If True, include class ID information in the output.
+                                   This enables ID-aware prompt training.
         """
         self.masks = masks
         self.target_class_id = target_class_id
         self.multi_class_mode = multi_class_mode
+        self.include_class_id = include_class_id
 
     def load(self, frame_idx):
         """
@@ -361,6 +364,7 @@ class NiftiSegmentLoader:
 
         Returns:
             dict: A dictionary where keys are object IDs and values are binary masks.
+                 If include_class_id=True, returns a dict with 'mask' and 'class_id' keys.
         """
         mask = self.masks[frame_idx]
 
@@ -383,13 +387,29 @@ class NiftiSegmentLoader:
             
             # Create binary mask: target class = 1, others = 0
             binary_mask = (mask == target_id)
-            return {1: torch.from_numpy(binary_mask).bool()}
+            
+            if self.include_class_id:
+                # Return mask and class ID together for ID-aware training
+                return {
+                    1: {
+                        'mask': torch.from_numpy(binary_mask).bool(),
+                        'class_id': torch.tensor(target_id, dtype=torch.long)
+                    }
+                }
+            else:
+                return {1: torch.from_numpy(binary_mask).bool()}
         else:
             # Single-class mode: treat each class separately
             binary_segments = {}
             for obj_id in object_ids:
                 binary_mask = (mask == obj_id)
-                binary_segments[int(obj_id)] = torch.from_numpy(binary_mask).bool()
+                if self.include_class_id:
+                    binary_segments[int(obj_id)] = {
+                        'mask': torch.from_numpy(binary_mask).bool(),
+                        'class_id': torch.tensor(obj_id, dtype=torch.long)
+                    }
+                else:
+                    binary_segments[int(obj_id)] = torch.from_numpy(binary_mask).bool()
             return binary_segments
 
     def set_target_class(self, target_class_id):
@@ -414,3 +434,12 @@ class NiftiSegmentLoader:
             object_ids = object_ids[object_ids != 0]
             all_classes.update(object_ids)
         return sorted(list(all_classes))
+
+    def get_current_target_class_id(self):
+        """
+        Get the current target class ID being used for training.
+        
+        Returns:
+            int: The current target class ID, or None if not set.
+        """
+        return self.target_class_id

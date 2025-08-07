@@ -62,8 +62,16 @@ class RandomUniformSampler(VOSSampler):
                 for object_id, segment in segment_loader.load(
                     frames[0].frame_idx
                 ).items():
-                    if segment.sum():
-                        visible_object_ids.append(object_id)
+                    # Handle both old format (tensor) and new format (dict with mask)
+                    if isinstance(segment, dict):
+                        # New ID-aware format: segment is a dict with 'mask' and 'class_id'
+                        mask = segment['mask']
+                        if mask.sum():
+                            visible_object_ids.append(object_id)
+                    else:
+                        # Old format: segment is directly a tensor
+                        if segment.sum():
+                            visible_object_ids.append(object_id)
 
             # First frame needs to have at least a target to track
             if len(visible_object_ids) > 0:

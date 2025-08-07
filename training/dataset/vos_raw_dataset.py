@@ -25,7 +25,8 @@ from training.dataset.vos_segment_loader import (
     MultiplePNGSegmentLoader,
     PalettisedPNGSegmentLoader,
     SA1BSegmentLoader,
-    NPZSegmentLoader
+    NPZSegmentLoader,
+    NiftiSegmentLoader
 )
 
 
@@ -385,70 +386,7 @@ class JSONRawDataset(VOSRawDataset):
     def __len__(self):
         return len(self.video_names)
 
-class NiftiSegmentLoader:
-    def __init__(self, masks, target_class_id=None, multi_class_mode=True):
-        """
-        Initialize the NiftiSegmentLoader.
-        
-        Args:
-            masks (numpy.ndarray): Array of masks with shape (D, H, W).
-            target_class_id (int, optional): The target class ID to focus on during training.
-                                           If None, will randomly select one class per frame.
-            multi_class_mode (bool): If True, treat one class as foreground and others as background.
-                                   If False, treat each class separately.
-        """
-        self.masks = masks
-        self.target_class_id = target_class_id
-        self.multi_class_mode = multi_class_mode
 
-    def load(self, frame_idx):
-        """
-        Load the single mask for the given frame index and convert it to binary segments.
-
-        Args:
-            frame_idx (int): Index of the frame to load.
-
-        Returns:
-            dict: A dictionary where keys are object IDs and values are binary masks.
-        """
-        mask = self.masks[frame_idx]
-
-        # Find unique object IDs in the mask, excluding the background (0)
-        object_ids = np.unique(mask)
-        object_ids = object_ids[object_ids != 0]
-
-        if len(object_ids) == 0:
-            # No objects in this frame
-            return {}
-
-        if self.multi_class_mode:
-            # Multi-class mode: treat one class as foreground, others as background
-            if self.target_class_id is not None:
-                # Use the specified target class
-                target_id = self.target_class_id
-            else:
-                # Randomly select one class as target
-                target_id = np.random.choice(object_ids)
-            
-            # Create binary mask: target class = 1, others = 0
-            binary_mask = (mask == target_id)
-            return {1: torch.from_numpy(binary_mask).bool()}
-        else:
-            # Single-class mode: treat each class separately
-            binary_segments = {}
-            for obj_id in object_ids:
-                binary_mask = (mask == obj_id)
-                binary_segments[int(obj_id)] = torch.from_numpy(binary_mask).bool()
-            return binary_segments
-
-    def set_target_class(self, target_class_id):
-        """
-        Set the target class ID for multi-class training.
-        
-        Args:
-            target_class_id (int): The target class ID to focus on.
-        """
-        self.target_class_id = target_class_id
 
 class NiftiRawDataset(VOSRawDataset):
     def __init__(
@@ -464,6 +402,7 @@ class NiftiRawDataset(VOSRawDataset):
         upper_bound=None,
         multi_class_mode=True,
         target_class_id=None,
+        include_class_id=True,  # 启用ID-aware模式
     ):
         self.img_folder = img_folder
         self.gt_folder = gt_folder
@@ -474,6 +413,7 @@ class NiftiRawDataset(VOSRawDataset):
         self.upper_bound = upper_bound
         self.multi_class_mode = multi_class_mode
         self.target_class_id = target_class_id
+        self.include_class_id = include_class_id
 
         # Read all nii.gz files from img_folder
         subset = []
@@ -570,11 +510,12 @@ class NiftiRawDataset(VOSRawDataset):
         # Create VOSVideo object
         video = VOSVideo(video_name, idx, vos_frames)
         
-        # Create NiftiSegmentLoader with multi-class support
+        # Create NiftiSegmentLoader with multi-class support and ID-aware mode
         segment_loader = NiftiSegmentLoader(
             nii_gt_data[::self.sample_rate], 
             target_class_id=self.target_class_id,
-            multi_class_mode=self.multi_class_mode
+            multi_class_mode=self.multi_class_mode,
+            include_class_id=self.include_class_id
         )
         
         return video, segment_loader

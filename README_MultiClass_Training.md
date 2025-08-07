@@ -72,6 +72,13 @@ model:
   prob_to_use_box_input_for_eval: 0.0  # 禁用评估时的box输入
   num_init_cond_frames_for_train: 1    # 只使用第一帧作为初始条件帧
   rand_init_cond_frames_for_train: False  # 总是使用第一帧
+
+# 数据集配置
+data:
+  train:
+    datasets:
+      - video_dataset:
+          include_class_id: true  # 启用ID-aware模式，将ID和mask一起作为prompt
 ```
 
 ### 2. 数据集加载器: `training/dataset/vos_raw_dataset.py`
@@ -287,6 +294,11 @@ python training/train.py \
 - `num_init_cond_frames_for_train: 1` - 只使用第一帧作为初始条件帧
 - `rand_init_cond_frames_for_train: False` - 总是使用第一帧
 
+### ID-aware参数
+- `include_class_id: true` - 启用ID-aware模式，将class ID和mask一起作为prompt
+- `multi_class_mode: true` - 启用多类别模式
+- `target_class_id: null` - 动态随机选择目标类别
+
 ### 数据增强参数
 ```yaml
 vos:
@@ -331,6 +343,17 @@ else:
   - 简化训练流程，减少计算开销
   - 专注于mask-to-mask的学习
   - 更适合医学图像分割任务
+
+### 5. ID-aware Prompt模式
+- **输入方式**: 同时使用mask和class ID作为prompt
+- **训练流程**: 
+  - 第一帧的GT mask + 对应的class ID作为prompt
+  - 模型学会将ID和mask形状关联起来
+  - 提高多类别分割的准确性
+- **优势**: 
+  - 更接近实际推理场景
+  - 避免ID混淆问题
+  - 增强模型对多类别的理解能力
 
 ## 性能优化
 
@@ -426,4 +449,87 @@ rand_init_cond_frames_for_train: False # 总是使用第一帧
 - 训练速度更快（减少point/box采样开销）
 - 内存使用更少（不需要存储point/box信息）
 - 训练更稳定（专注于mask学习）
-- 更适合医学图像分割任务 
+- 更适合医学图像分割任务
+
+## ID-aware功能详解
+
+### 实现原理
+ID-aware功能通过在训练时同时传递mask和对应的class ID，让模型学会将ID和mask形状关联起来。这样在推理时，模型能够更准确地根据给定的ID进行分割。
+
+### 数据结构变化
+```python
+# 修改前：只返回mask
+return {1: torch.from_numpy(binary_mask).bool()}
+
+# 修改后：返回mask和ID的组合
+return {
+    1: {
+        'mask': torch.from_numpy(binary_mask).bool(),
+        'class_id': torch.tensor(target_id, dtype=torch.long)
+    }
+}
+```
+
+### 向后兼容性
+为了保持向后兼容性，代码会自动检测数据格式：
+```python
+# 在vos_dataset.py中
+if isinstance(segments[obj_id], dict):
+    # 新格式：包含mask和ID
+    segment = segments[obj_id]['mask'].to(torch.uint8)
+else:
+    # 旧格式：直接是tensor
+    segment = segments[obj_id].to(torch.uint8)
+```
+
+### 训练优势
+1. **语义关联**: 模型学会将ID和mask形状建立强关联
+2. **避免混淆**: 当不同ID的mask形状相似时，模型仍能正确区分
+3. **推理一致性**: 训练和推理场景更加一致
+4. **多类别理解**: 增强模型对多类别分割的理解能力
+
+### 使用场景
+- **医学图像分割**: 不同器官/病变的ID对应不同的mask形状
+- **多类别检测**: 需要同时处理多个类别的分割任务
+- **ID-guided分割**: 根据指定的ID进行精确分割
+
+### 配置说明
+```yaml
+# 在配置文件中启用ID-aware模式
+video_dataset:
+  include_class_id: true  # 启用ID-aware功能
+  multi_class_mode: true  # 多类别模式
+  target_class_id: null   # 动态选择目标类别
+```
+
+## 故障排除
+
+### 常见错误及解决方案
+
+#### 1. `'dict' object has no attribute 'sum'` 错误
+**原因**: 代码期望tensor对象，但收到了字典
+**解决方案**: 确保已更新`vos_dataset.py`和`vos_sampler.py`文件以支持新的数据格式
+
+#### 2. 数据加载失败
+**原因**: ID-aware模式与现有代码不兼容
+**解决方案**: 
+- 检查`include_class_id`参数设置
+- 确保所有相关文件都已更新
+- 运行测试脚本验证功能
+
+#### 3. 训练时ID信息丢失
+**原因**: SAM2模型层未处理ID信息
+**解决方案**: 需要进一步修改SAM2模型以支持ID-aware训练（下一步工作）
+
+### 调试技巧
+```python
+# 检查segment loader的输出格式
+segment_loader = NiftiSegmentLoader(masks, include_class_id=True)
+result = segment_loader.load(0)
+print(f"输出类型: {type(result)}")
+for obj_id, data in result.items():
+    print(f"对象 {obj_id}: {type(data)}")
+    if isinstance(data, dict):
+        print(f"  mask形状: {data['mask'].shape}")
+        print(f"  class_id: {data['class_id'].item()}")
+``` 

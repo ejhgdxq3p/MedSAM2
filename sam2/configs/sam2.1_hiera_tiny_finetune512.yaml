@@ -224,6 +224,7 @@ trainer:
                 upper_bound: 1000     # Adjust based on your data range
                 multi_class_mode: true  # 启用多类别模式
                 target_class_id: null   # 初始为null，会在训练时动态设置
+                include_class_id: true  # 启用ID-aware模式，将ID和mask一起作为prompt
               sampler:
                 _target_: training.dataset.vos_sampler.RandomUniformSampler
                 num_frames: ${scratch.num_frames}

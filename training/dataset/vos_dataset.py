@@ -107,8 +107,14 @@ class VOSDataset(VisionDataset):
                     assert (
                         segments[obj_id] is not None
                     ), "None targets are not supported"
-                    # segment is uint8 and remains uint8 throughout the transforms
-                    segment = segments[obj_id].to(torch.uint8)
+                    
+                    # Handle both old format (tensor) and new format (dict with mask)
+                    if isinstance(segments[obj_id], dict):
+                        # New ID-aware format: segment is a dict with 'mask' and 'class_id'
+                        segment = segments[obj_id]['mask'].to(torch.uint8)
+                    else:
+                        # Old format: segment is directly a tensor
+                        segment = segments[obj_id].to(torch.uint8)
                 else:
                     # There is no target, we either use a zero mask target or drop this object
                     if not self.always_target:
