@@ -13,7 +13,7 @@ scratch:
 
 dataset:
   # PATHS to Dataset
-  folder:  # PATH to Med NPZ folder
+  folder:  /root/autodl-fs/medsam2/meddata              # PATH to Med NPZ folder
   multiplier: 1
 
 # Video transforms
@@ -199,7 +199,6 @@ trainer:
     
     num_init_cond_frames_for_eval: 1  # only mask on the first frame
     forward_backbone_per_frame_for_eval: True
-    
 
   data:
     train:
@@ -212,61 +211,17 @@ trainer:
           dataset:
             _target_: training.dataset.utils.ConcatDataset
             datasets:
-            # CT
+            # Nifti Dataset
             - _target_: training.dataset.vos_dataset.VOSDataset
               transforms: ${vos.train_transforms}
               training: true
               video_dataset:
-                _target_: training.dataset.vos_raw_dataset.NPZRawDataset
-                folder: CVPR25/3D_train_npz_random_10percent_16G/CT
-              sampler:
-                _target_: training.dataset.vos_sampler.RandomUniformSampler
-                num_frames: ${scratch.num_frames}
-                max_num_objects: ${scratch.max_num_objects}
-              multiplier: 1
-            # MR
-            - _target_: training.dataset.vos_dataset.VOSDataset
-              transforms: ${vos.train_transforms}
-              training: true
-              video_dataset:
-                _target_: training.dataset.vos_raw_dataset.NPZRawDataset
-                folder: CVPR25/3D_train_npz_random_10percent_16G/MR
-              sampler:
-                _target_: training.dataset.vos_sampler.RandomUniformSampler
-                num_frames: ${scratch.num_frames}
-                max_num_objects: ${scratch.max_num_objects}
-              multiplier: 1
-            # PET
-            - _target_: training.dataset.vos_dataset.VOSDataset
-              transforms: ${vos.train_transforms}
-              training: true
-              video_dataset:
-                _target_: training.dataset.vos_raw_dataset.NPZRawDataset
-                folder: CVPR25/3D_train_npz_random_10percent_16G/PET
-              sampler:
-                _target_: training.dataset.vos_sampler.RandomUniformSampler
-                num_frames: ${scratch.num_frames}
-                max_num_objects: ${scratch.max_num_objects}
-              multiplier: 10
-            # Ultrasound 3D
-            - _target_: training.dataset.vos_dataset.VOSDataset
-              transforms: ${vos.train_transforms}
-              training: true
-              video_dataset:
-                _target_: training.dataset.vos_raw_dataset.NPZRawDataset
-                folder: CVPR25/3D_train_npz_random_10percent_16G/US3D
-              sampler:
-                _target_: training.dataset.vos_sampler.RandomUniformSampler
-                num_frames: ${scratch.num_frames}
-                max_num_objects: ${scratch.max_num_objects}
-              multiplier: 1
-            # Microscopy 3D
-            - _target_: training.dataset.vos_dataset.VOSDataset
-              transforms: ${vos.train_transforms}
-              training: true
-              video_dataset:
-                _target_: training.dataset.vos_raw_dataset.NPZRawDataset
-                folder: CVPR25/3D_train_npz_random_10percent_16G/Microscopy
+                _target_: training.dataset.vos_raw_dataset.NiftiRawDataset
+                img_folder: /root/autodl-fs/medsam2/meddata/ImagesTr  # 绝对路径
+                gt_folder: /root/autodl-fs/medsam2/meddata/labelsTr   # 绝对路径
+                normalize: true
+                lower_bound: -1000    # Adjust based on your data range (e.g., CT HU values)
+                upper_bound: 1000     # Adjust based on your data range
               sampler:
                 _target_: training.dataset.vos_sampler.RandomUniformSampler
                 num_frames: ${scratch.num_frames}
@@ -367,7 +322,7 @@ trainer:
 
       state_dict:
         _target_: training.utils.checkpoint_utils.load_checkpoint_and_apply_kernels
-        checkpoint_path: checkpoints/sam2.1_hiera_tiny.pt # PATH to SAM 2.1 checkpoint
+        checkpoint_path: checkpoints/MedSAM2_latest.pt # PATH to SAM 2.1 checkpoint
         ckpt_state_dict_keys: ['model']
 
 launcher:
