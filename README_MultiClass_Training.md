@@ -10,11 +10,14 @@
 - **多类别模式**：每次训练时将一个类别作为前景，其他类别作为背景
 - **随机类别选择**：每次加载数据时随机选择一个类别作为目标
 - **动态类别轮换**：通过随机选择确保所有类别都能被充分训练
+- **Mask-only Prompt模式**：只使用mask作为prompt，不使用box和click输入
 
 ### 优势
 1. **提高泛化能力**：模型学会区分不同类别
 2. **避免过拟合**：防止模型只学会识别单一类别
 3. **更接近实际应用**：模拟真实场景中的多类别分割需求
+4. **简化训练流程**：只使用mask prompt，减少训练复杂度
+5. **提高训练效率**：避免point/box采样开销，专注于mask学习
 
 ## 文件结构
 
@@ -53,12 +56,22 @@ data:
       - video_dataset:
           _target_: training.dataset.vos_raw_dataset.NiftiRawDataset
           img_folder: /root/autodl-fs/medsam2/meddata/ImagesTr  # 图像文件夹
-          gt_folder: /root/autodl-fs/medsam2/meddata/labelsTr   # 标签文件夹
+          gt_folder: /root/autodl-fs/medsam2/meddata/LabelsTr   # 标签文件夹
           normalize: true
           lower_bound: -1000    # CT HU值下限
           upper_bound: 1000     # CT HU值上限
           multi_class_mode: true  # 启用多类别模式
           target_class_id: null   # 动态设置目标类别
+
+# Prompt模式配置
+model:
+  # mask-only input (no box/point prompts)
+  prob_to_use_pt_input_for_train: 0.0  # 禁用训练时的point输入
+  prob_to_use_pt_input_for_eval: 0.0   # 禁用评估时的point输入
+  prob_to_use_box_input_for_train: 0.0 # 禁用训练时的box输入
+  prob_to_use_box_input_for_eval: 0.0  # 禁用评估时的box输入
+  num_init_cond_frames_for_train: 1    # 只使用第一帧作为初始条件帧
+  rand_init_cond_frames_for_train: False  # 总是使用第一帧
 ```
 
 ### 2. 数据集加载器: `training/dataset/vos_raw_dataset.py`
@@ -266,6 +279,14 @@ python training/train.py \
 - `upper_bound: 1000` - CT图像HU值上限（可根据数据类型调整）
 - `normalize: true` - 启用图像归一化
 
+### Prompt模式参数
+- `prob_to_use_pt_input_for_train: 0.0` - 禁用训练时的point输入
+- `prob_to_use_pt_input_for_eval: 0.0` - 禁用评估时的point输入
+- `prob_to_use_box_input_for_train: 0.0` - 禁用训练时的box输入
+- `prob_to_use_box_input_for_eval: 0.0` - 禁用评估时的box输入
+- `num_init_cond_frames_for_train: 1` - 只使用第一帧作为初始条件帧
+- `rand_init_cond_frames_for_train: False` - 总是使用第一帧
+
 ### 数据增强参数
 ```yaml
 vos:
@@ -299,6 +320,17 @@ else:
     # 随机选择一个类别作为目标
     target_id = np.random.choice(object_ids)
 ```
+
+### 4. Mask-only Prompt模式
+- **输入方式**: 只使用mask作为prompt，不使用box和click
+- **训练流程**: 
+  - 第一帧的GT mask作为初始prompt
+  - 模型基于mask prompt进行分割预测
+  - 不使用交互式point/box采样
+- **优势**: 
+  - 简化训练流程，减少计算开销
+  - 专注于mask-to-mask的学习
+  - 更适合医学图像分割任务
 
 ## 性能优化
 
@@ -362,4 +394,36 @@ def load_multimodal_data(self, img_paths):
 
 ## 总结
 
-这个多类别训练策略为MedSAM2提供了强大的多类别分割能力，通过随机类别选择和动态轮换，确保模型能够学会区分所有46个医学图像类别。该实现具有良好的扩展性和可配置性，可以根据具体需求进行调整和优化。 
+这个多类别训练策略为MedSAM2提供了强大的多类别分割能力，通过随机类别选择和动态轮换，确保模型能够学会区分所有46个医学图像类别。该实现具有良好的扩展性和可配置性，可以根据具体需求进行调整和优化。
+
+## 配置修改说明
+
+### 本次修改内容
+1. **禁用Point/Box输入**: 将所有与point和box相关的概率参数设置为0
+2. **启用Mask-only模式**: 只使用mask作为prompt输入
+3. **简化训练流程**: 减少交互式采样，专注于mask学习
+
+### 修改的文件
+- `sam2/configs/sam2.1_hiera_tiny_finetune512.yaml` - 主配置文件
+- `README_MultiClass_Training.md` - 本文档
+
+### 关键配置变更
+```yaml
+# 修改前
+prob_to_use_pt_input_for_train: 0.5
+prob_to_use_box_input_for_train: 1.0
+num_init_cond_frames_for_train: 2
+rand_init_cond_frames_for_train: True
+
+# 修改后
+prob_to_use_pt_input_for_train: 0.0  # 禁用point输入
+prob_to_use_box_input_for_train: 0.0 # 禁用box输入
+num_init_cond_frames_for_train: 1    # 只使用第一帧
+rand_init_cond_frames_for_train: False # 总是使用第一帧
+```
+
+### 预期效果
+- 训练速度更快（减少point/box采样开销）
+- 内存使用更少（不需要存储point/box信息）
+- 训练更稳定（专注于mask学习）
+- 更适合医学图像分割任务 
