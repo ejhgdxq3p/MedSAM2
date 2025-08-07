@@ -1118,3 +1118,49 @@ def get_human_readable_count(number: int) -> str:
         return f"{int(number):,d} {labels[index]}"
     else:
         return f"{number:,.1f} {labels[index]}"
+
+
+class MultiClassTrainer(Trainer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.current_class_id = None
+        self.class_rotation_epoch = 1  # 每多少个epoch轮换一次类别
+        
+    def setup_training(self):
+        super().setup_training()
+        
+        # 获取所有可用类别
+        if hasattr(self.train_dataset, 'datasets'):
+            # 对于ConcatDataset，获取第一个数据集的类别
+            first_dataset = self.train_dataset.datasets[0].dataset.datasets[0]
+            if hasattr(first_dataset.video_dataset, 'get_available_classes'):
+                self.available_classes = first_dataset.video_dataset.get_available_classes()
+            else:
+                self.available_classes = list(range(1, 47))  # 假设有46个类别
+        else:
+            self.available_classes = list(range(1, 47))
+        
+        print(f"Available classes: {self.available_classes}")
+        
+    def on_train_epoch_start(self):
+        super().on_train_epoch_start()
+        
+        # 每class_rotation_epoch个epoch轮换一次类别
+        if self.current_epoch % self.class_rotation_epoch == 0:
+            # 随机选择一个类别作为目标
+            self.current_class_id = np.random.choice(self.available_classes)
+            print(f"Epoch {self.current_epoch}: Training on class {self.current_class_id}")
+            
+            # 更新所有数据集的目标类别
+            self._update_target_class(self.current_class_id)
+    
+    def _update_target_class(self, target_class_id):
+        """更新所有数据集的目标类别"""
+        if hasattr(self.train_dataset, 'datasets'):
+            for dataset_wrapper in self.train_dataset.datasets:
+                for dataset in dataset_wrapper.dataset.datasets:
+                    if hasattr(dataset.video_dataset, 'set_target_class'):
+                        dataset.video_dataset.set_target_class(target_class_id)
+        else:
+            if hasattr(self.train_dataset, 'set_target_class'):
+                self.train_dataset.set_target_class(target_class_id)

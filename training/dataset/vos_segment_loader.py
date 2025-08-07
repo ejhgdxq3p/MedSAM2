@@ -334,3 +334,83 @@ class NPZSegmentLoader:
             binary_segments[int(obj_id)] = torch.from_numpy(binary_mask).bool()
 
         return binary_segments
+
+
+class NiftiSegmentLoader:
+    def __init__(self, masks, target_class_id=None, multi_class_mode=True):
+        """
+        Initialize the NiftiSegmentLoader.
+        
+        Args:
+            masks (numpy.ndarray): Array of masks with shape (D, H, W).
+            target_class_id (int, optional): The target class ID to focus on during training.
+                                           If None, will randomly select one class per frame.
+            multi_class_mode (bool): If True, treat one class as foreground and others as background.
+                                   If False, treat each class separately.
+        """
+        self.masks = masks
+        self.target_class_id = target_class_id
+        self.multi_class_mode = multi_class_mode
+
+    def load(self, frame_idx):
+        """
+        Load the single mask for the given frame index and convert it to binary segments.
+
+        Args:
+            frame_idx (int): Index of the frame to load.
+
+        Returns:
+            dict: A dictionary where keys are object IDs and values are binary masks.
+        """
+        mask = self.masks[frame_idx]
+
+        # Find unique object IDs in the mask, excluding the background (0)
+        object_ids = np.unique(mask)
+        object_ids = object_ids[object_ids != 0]
+
+        if len(object_ids) == 0:
+            # No objects in this frame
+            return {}
+
+        if self.multi_class_mode:
+            # Multi-class mode: treat one class as foreground, others as background
+            if self.target_class_id is not None:
+                # Use the specified target class
+                target_id = self.target_class_id
+            else:
+                # Randomly select one class as target
+                target_id = np.random.choice(object_ids)
+            
+            # Create binary mask: target class = 1, others = 0
+            binary_mask = (mask == target_id)
+            return {1: torch.from_numpy(binary_mask).bool()}
+        else:
+            # Single-class mode: treat each class separately
+            binary_segments = {}
+            for obj_id in object_ids:
+                binary_mask = (mask == obj_id)
+                binary_segments[int(obj_id)] = torch.from_numpy(binary_mask).bool()
+            return binary_segments
+
+    def set_target_class(self, target_class_id):
+        """
+        Set the target class ID for multi-class training.
+        
+        Args:
+            target_class_id (int): The target class ID to focus on.
+        """
+        self.target_class_id = target_class_id
+
+    def get_available_classes(self):
+        """
+        Get all available class IDs in the dataset.
+        
+        Returns:
+            list: List of available class IDs.
+        """
+        all_classes = set()
+        for mask in self.masks:
+            object_ids = np.unique(mask)
+            object_ids = object_ids[object_ids != 0]
+            all_classes.update(object_ids)
+        return sorted(list(all_classes))
